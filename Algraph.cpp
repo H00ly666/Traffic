@@ -1,11 +1,16 @@
 #include<iostream>
 #include<fstream>
 #include<string>
-#include<vector>
 #include<queue>
+#include<stack>
+#include<vector>
+#include"./login.cpp"
 #include<mysql/mysql.h>
+// #include"./login.cpp"
 #define INFINITY 32768
 using namespace std;
+
+
 /*
     节点信息  代表某一城市
     1.城市信息
@@ -23,6 +28,7 @@ struct City
     存边信息  ：票价 时间 距离 
 
 */
+    MYSQL *conn;//一个sql套接字
 class ALGraph
 {
     public:
@@ -46,9 +52,12 @@ class ALGraph
     //删除某一条路线
     void Delete_way();
     //采用Dijkstra算法求得从起点城市到各个城市的最短路径
-    void Dijkstra(int start,int end, int dist[],int path[][20]);
+    void Dijkstra(int start,int end, int dist[],int path[][50]);
     //查询最短路线
     void  Short_way();
+    //采用DFS算法求得两点直接之间所有路径
+    void  all_path() ;  //所有简单路径
+    void DFS_All_ALGraph(int ,int );
     //采用BFS算法求得最少中转
     void BFS_ALGraph();
     //采用prim 算法求得最短联通线路图
@@ -56,8 +65,9 @@ class ALGraph
     //查询某个城市的最短联通图
     void MiniSpanTree();
     void  Save();
+    
+    void  menu( int flag );    //选项菜单
 };
-
 /**********************
     登录
     1.用户登陆
@@ -108,7 +118,6 @@ int ALGraph::Creat()
     MYSQL_ROW result_row; //按行返回查询信息
     int row,column;//返回查询到的行数和列数
 
-    MYSQL *conn; //一个数据库连接指针
     //用NULL 来初始化链接句柄
     conn = mysql_init(NULL);
     if(conn == NULL){
@@ -151,7 +160,7 @@ int ALGraph::Creat()
         cout<< endl;
     
     }
-    mysql_close(conn);
+    //mysql_close(conn);
 }
 
 /**********************
@@ -177,7 +186,7 @@ void  ALGraph:: Display()
         for(int  j=1;j<= vexnum;j++)
         {
             if( arcs[i][j] != INFINITY)
-                cout << vex[i].name <<"<---->"<< vex[j].name<< arcs[i][j]<<"Km";
+                cout << vex[i].name <<"<---->"<< vex[j].name<< arcs[i][j]<<"Km"<<endl ;
         }
 }
 
@@ -187,9 +196,10 @@ void  ALGraph:: Display()
 **********************/
 void  ALGraph:: Display_City()
 {
-    for(auto&h : vex){
-        cout <<h.num << ": "<< h.name <<endl;
+    for(int i=1 ;i<=vexnum ;i++ ){
+        cout <<i << ":  " << vex[i].name <<endl;
     }
+        
 
 }
 /**********************
@@ -229,9 +239,32 @@ void ALGraph:: Add_way()
     end  = Locate(city);
     cout << "距离为: " ;
     cin >> length ;
-     arcs[start][end] = length;
-     arcs[end][start]  = length;
+    arcs[start][end] = length;
+    arcs[end][start]  = length;
     cout << "添加成功"<<endl;
+    
+    char sql[100];
+    sprintf(sql,"insert into arcs (`from`, `to` , `length`) VALUES (%d ,%d , %d) ",start ,end,length );
+    
+    cout << sql <<endl;
+    
+    int res = mysql_query (conn, sql);  //正确返回0
+    if(res){
+        cout << mysql_error(conn) << endl;
+        cout <<"error" <<endl;
+        mysql_close(conn);
+        //exit(0);
+        return ;
+    }
+    
+    sprintf(sql,"insert into arcs (`from` , `to` , `length`) VALUES (%d ,%d ,%d) ", end,start,length);
+    res = mysql_query (conn, sql);  //正确返回0
+    if(res){
+        cout <<"error2" <<endl;
+        mysql_close(conn);
+        exit(0);
+    }
+    Creat();
 }
 
 /**********************
@@ -252,7 +285,31 @@ void ALGraph:: Delete_way()
      arcs[start][end] = INFINITY;
      arcs[end][start]  = INFINITY;
     cout << "删除成功"<<endl;
+    
 
+
+    char sql[100];
+    sprintf(sql,"delete from  arcs  where  `from` = %d and `to` = %d",start ,end);
+
+    cout << sql <<endl;
+    
+    int res = mysql_query (conn, sql);  //正确返回0
+    if(res){
+        cout << mysql_error(conn) << endl;
+        cout <<"error" <<endl;
+        mysql_close(conn);
+        exit(0);
+        return ;
+    }
+    
+    sprintf(sql,"delete from  arcs  where  `from` = %d and `to` = %d",end ,start );
+    res = mysql_query (conn, sql);  //正确返回0
+    if(res){
+        cout <<"error2" <<endl;
+        mysql_close(conn);
+        exit(0);
+    }
+    Creat();
 }
 
 /**********************
@@ -261,7 +318,8 @@ void ALGraph:: Delete_way()
     void Dijkstra(int start,int end, int dist[],int path[][MXVEX])
 
 **********************/
-void ALGraph::  Dijkstra(int start,int end, int dist[],int path[][20])
+
+void ALGraph::  Dijkstra(int start,int end, int dist[],int path[][50])
 {
     int  mindist, i, j, k, t =1;
     for(i=1; i<= vexnum ;i++){
@@ -296,24 +354,29 @@ void ALGraph::  Dijkstra(int start,int end, int dist[],int path[][20])
             }
         }
     }
-    for(i=1;i <= vexnum;i++)
-        if(i==end ) return;
-    cout << vex[start].name << "<--->"<< vex[end].name << "的最短线路为:从 ";vex[start].name;
+    if (dist[end] == INFINITY)
+    {
+        cout << "不存在的" <<endl;
+        return ;
+    }
+        
+        cout << vex[start].name << "<--->"<< vex[end].name << "的最短线路为:从 " << vex[start].name;
     
-    for(j =2; path[i][j]!= 0 ;j++)
-        cout<< "->" << vex[path[i][j]] .name;
-    cout << "->" << vex[end].name <<"距离为: " <<dist[i]<<endl;
+    for(j =2; path[end][j]!= 0 ;j++)
+        cout<< "->" << vex[path[end][j]] .name;
+    cout << "->" << vex[end].name <<"距离为: " <<dist[end]<<"KM" <<endl ;
     
 }
+
 /**********************
     查询最短路线
     void  Short_way()
 **********************/
-void ALGraph::  Short_way()
+void ALGraph:: Short_way()
 {
     string city;
     int start,end;
-    int dist[20],path[20][20] = {0};
+    int dist[20],path[50][50] = {0};
     cout<<"请输入起始城市： ";
     cin >> city;
     start = Locate(city);
@@ -322,6 +385,111 @@ void ALGraph::  Short_way()
     end  = Locate(city);
     Dijkstra(start,end, dist, path);
 
+}
+
+/**********************
+    采用DFS算法求得两点直接之间所有路径
+    void DFS_All_ALGraph()
+**********************/
+/*
+void ALGraph::DFS_All_ALGraph()
+{
+    stack<int> S;  
+    
+    // book 用来标p记是否被访问过  初始化为0
+    int  book[vexnum+1] = {0};
+
+    //城市起点 终点
+    string city;
+    int start,end,flag=0 ,sum =1;
+    cout<<"请输入起始城市： ";
+    cin >> city;
+    start = Locate(city);
+    if(!start){
+        cout <<"不存在的--"<< city << "请重新操作" <<endl;
+        return;
+    }
+    cout<<"请输入终点城市： ";
+    cin >> city;  
+    end  = Locate(city);
+    if(!start){
+        cout <<"不存在的--"<< city << "请重新操作" <<endl;
+        return;
+    }
+
+    S.push(start);
+    
+    while ( !S.empty() ){
+        v = S.pop();
+        if(book[v] != 1 )
+            cout << endl;
+        //寻找v的第一个邻接点
+        for(i = 1; i<=vexnum ;i++ ){
+            if(arcs[S.top][i] !=INFINITY &&  book[i] ==0 ){        
+                S.push(i);
+                break;
+                D
+            }
+        }
+        
+    }
+   
+}
+*/
+int book[100];
+vector < int > V;
+void ALGraph:: all_path()   //所有简单路径
+{
+    book[100] = {0};
+    string str1,str2;
+    int v1,v2;
+    cout << "输入起始点：\n";
+    cin >> str1;
+    cout<<"请输入终点城市： ";
+    cin >> str2;
+
+    v1 =Locate( str1 );
+    if( v1 == -1 )
+    {
+        cout << "无此地点\n";
+        return ;
+    }
+    v2 = Locate( str2 );
+    if( v2 == -1 )
+    {
+        cout << "无此地点\n";
+        return ;
+    }
+    DFS_All_ALGraph( v1,v2 );
+
+}
+//void ALGraph :: dfs_all( int v1,int v2 )
+void ALGraph:: DFS_All_ALGraph(int v1 ,int v2 )
+{
+    int i,j;
+    V.push_back( v1 );
+    book[ v1 ] = 1;
+    if( v1 == v2 )
+    {
+        for( int i : V )
+        {
+            cout << vex[i].name << ' ';
+        }
+        cout << endl;
+    }
+    else 
+    {
+        for( i = 1;i <= vexnum;i++ )
+        {
+            if( arcs[ v1 ][i] != INFINITY && book[i] == 0 )
+            {
+                DFS_All_ALGraph( i,v2 );
+            }
+        }
+    }
+    book[ v1 ] = 0;
+    v1--;
+    V.pop_back();
 
 }
 
@@ -340,7 +508,7 @@ void ALGraph::BFS_ALGraph()
     X temp;
     //队列Q
     queue<X> Q; 
-    // book 用来标记是否被访问过  初始化为0
+    // book 用来标p记是否被访问过  初始化为0
     int  book[vexnum+1] = {0};
 
     //城市起点 终点
@@ -393,7 +561,7 @@ void ALGraph::BFS_ALGraph()
         }
         sum++;
     }
-    cout << "路将为" <<endl;
+    cout << "路径为 " <<endl;
     for(auto &h: res){
         cout << h << " " <<endl;
     }
@@ -426,14 +594,86 @@ void ALGraph:: Save()
 /**********************
 
 **********************/
+void ALGraph :: menu( int flag )    //选项菜单
+{
+    int choose;
+    cout << "0.退出\n"
+         << "1.显示地图所有地点\n"
+         << "2.查看两点间最短路径\n"
+         << "3.查看两点间转机最少的路径\n"
+         << "4.查看两点间所有简单路径\n"
+         << "5.增加路径\n"
+         << "6.删除路径\n"
+         << "7.显示所有路径\n";   
+    cout << "输入选项：" << endl; 
+    cin >> choose;
+    while( choose != 0 )
+    {
+        if( choose == 1 )
+        {
+            Display_City();
 
+        }
+        if( choose == 2 )
+        {
+            Short_way();
+        }
+        if( choose == 3 )
+        {
+            BFS_ALGraph();
+        }
+        if( choose == 4 )
+        {
+            all_path();
+        }
+        if( choose == 5 )
+        {
+            Add_way();
+        }
+        if( choose == 6 )
+        {
+            if( flag != 1 )
+            {
+                cout << "缺少权限" << endl;
+            }
+            else
+            {
+                Add_way();
+            }
+        }
+        if( choose == 6 )
+        {
+            if( flag != 1 )
+            {
+                cout << "缺少权限" << endl;
+            }
+            else
+            {
+                Delete_way();
+            }
+        
+        }
+        if(choose == 7)
+        {
+            Display();
+        }
+        cout << '\n' << "输入选项:" << endl;
+        cin >> choose;
+    }
+}
 int main ()
 {
     ALGraph  G;    
     G.Creat();
-    G.Display();
-    G.Display_City();
-   // G.Search();
-    G.BFS_ALGraph();
+   // G.Display();
+   // G.all_path();
+   // G.Add_way();
+   // G.Display();
+    if(start() ){
+        G.menu(1);
+    } 
+
+
 }
+
 
